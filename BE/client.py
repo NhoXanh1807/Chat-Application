@@ -1,46 +1,52 @@
+# client.py
 import socket
 import threading
 import requests
+import datetime
+import json
 
-SERVER_FLASK_URL = "http://localhost:8000"  # địa chỉ Flask server
+SERVER_FLASK_URL = "http://localhost:8000"
+
 
 def send_to_flask(message):
     try:
-        response = requests.post(f"{SERVER_FLASK_URL}/update_message", json={"message": message})
-        if response.status_code == 200:
-            print("📨 Tin nhắn đã gửi lên Flask server thành công.")
-        else:
-            print("❌ Gửi message thất bại:", response.json())
-    except Exception as e:
-        print("❌ Lỗi khi gửi message đến Flask server:", e)
+        requests.post(f"{SERVER_FLASK_URL}/update_message", json={"message": message})
+    except:
+        pass
+
+
+def log_message(message_dict):
+    channel = message_dict.get("channel", "general")
+    with open(f"log_{channel}.txt", "a", encoding="utf-8") as f:
+        ts = message_dict.get("timestamp")
+        sender = message_dict.get("sender")
+        content = message_dict.get("content")
+        f.write(f"[{ts}] {sender}: {content}\n")
+
 
 def handle_client(conn, addr):
-    print(f"🔗 Kết nối từ {addr}")
-
-    while True:
+    data = conn.recv(2048)
+    if data:
         try:
-            data = conn.recv(1024)
-            if not data:
-                break
             message = data.decode("utf-8")
-            print(f"[{addr}] {message}")
+            message_dict = eval(message)
+            print(f"🔔 Tin nhắn từ {message_dict.get('sender')}: {message_dict.get('content')}")
             send_to_flask(message)
-        except:
-            break
-
+            log_message(message_dict)
+        except Exception as e:
+            print("❌ Lỗi đọc tin nhắn:", e)
     conn.close()
-    print(f"❌ Kết nối {addr} đã đóng")
+
 
 def start_server(host='0.0.0.0', port=6000):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((host, port))
-    server.listen(5)
-    print(f"🚀 Đang lắng nghe tại {host}:{port}")
-
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((host, port))
+    s.listen()
+    print(f"🎧 Lắng nghe TCP tại {host}:{port}")
     while True:
-        conn, addr = server.accept()
-        client_thread = threading.Thread(target=handle_client, args=(conn, addr))
-        client_thread.start()
+        conn, addr = s.accept()
+        threading.Thread(target=handle_client, args=(conn, addr)).start()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     start_server()
