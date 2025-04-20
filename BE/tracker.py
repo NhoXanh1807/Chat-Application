@@ -32,11 +32,25 @@ def peer_connect():
     data = request.json
     source_ip = data.get("source")
     dest_ip = data.get("dest")
-    if source_ip and dest_ip:
-        print(f"Peer connect: {source_ip} -> {dest_ip}")
-        return jsonify({"message": "In thông báo thành công"})
-    return jsonify({"error": "Thiếu thông tin"}), 400
-
+    
+    if not source_ip or not dest_ip:
+        return jsonify({"error": "Thiếu thông tin"}), 400
+    
+    # Kiểm tra nếu là kết nối tự gọi
+    if source_ip == dest_ip:
+        print(f"Peer tự kết nối: {source_ip}")
+        return jsonify({"message": "Peer tự kết nối"}), 200
+    
+    print(f"Peer connect: {source_ip} -> {dest_ip}")
+    
+    # Log kết nối vào Firebase
+    db.reference("peer_connections").push({
+        "source": source_ip,
+        "dest": dest_ip,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    
+    return jsonify({"message": "Đã log kết nối thành công"}), 200
 @app.route('/get_list', methods=['GET'])
 def get_list():
     peers = db.reference("peers").get()

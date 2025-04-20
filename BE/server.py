@@ -28,6 +28,11 @@ def login():
     if not username or not password:
         return jsonify({"error": "Thiếu username hoặc password"}), 400
 
+    # Kiểm tra nếu đã đăng nhập ở nơi khác
+    auth_peers = db.reference("peers_auth_online").get() or {}
+    if username in auth_peers:
+        return jsonify({"error": "Tài khoản đã đăng nhập ở máy khác"}), 403
+
     ref = db.reference(f"accounts/{username}")
     user_data = ref.get()
     if not user_data:
@@ -48,6 +53,7 @@ def login():
         if value.get("ip") == my_ip and int(value.get("port")) == MY_TCP_PORT:
             visitor_ref.child(key).delete()
             break
+
 
     channel_ref = db.reference("channels")
     channels_data = channel_ref.get() or {}
@@ -142,6 +148,9 @@ def send_to_channel():
         "timestamp": timestamp
     }
 
+    # Ghi log ở server
+    log_message(msg_data)
+
     my_ip = get_my_ip()
     for user in joined_users:
         if user == sender:
@@ -164,6 +173,14 @@ def send_to_channel():
     db.reference(f"messages/{channel}").push(msg_data)
     return jsonify({"message": "Đã gửi thành công", "data": msg_data}), 200
 
+def log_message(message_dict):
+    channel = message_dict.get("channel", "general")
+    with open(f"log_{channel}.txt", "a", encoding="utf-8") as f:
+        ts = message_dict.get("timestamp")
+        sender = message_dict.get("sender")
+        content = message_dict.get("content")
+        f.write(f"[{ts}] {sender}: {content}\n")
+
 @app.route('/channels', methods=['GET'])
 def get_channels():
     ref = db.reference("channels")
@@ -185,6 +202,103 @@ def get_channels():
         })
 
     return jsonify({"channels": channel_list}), 200
+@app.route('/add_member', methods=['POST'])
+def add_member():
+    data = request.json
+    channel = data.get("channel")
+    username = data.get("username")
+    adder = data.get("adder")  # Người thêm
+    
+    if not channel or not username or not adder:
+        return jsonify({"error": "Thiếu thông tin"}), 400
+    
+    channel_ref = db.reference(f"channels/{channel}")
+    channel_info = channel_ref.get()
+    
+    if not channel_info:
+        return jsonify({"error": "Channel không tồn tại"}), 404
+    
+    if channel_info.get("host") != adder:
+        return jsonify({"error": "Chỉ host mới có quyền thêm thành viên"}), 403
+    
+    joined_users = channel_info.get("joined_users", [])
+    if username not in joined_users:
+        joined_users.append(username)
+        channel_ref.update({"joined_users": joined_users})
+    
+    return jsonify({"message": "Đã thêm thành viên", "channel": channel, "user": username}), 200
+
+@app.route('/remove_member', methods=['POST'])
+def remove_member():
+    data = request.json
+    channel = data.get("channel")
+    username = data.get("username")
+    remover = data.get("remover")  # Người xóa
+    
+    if not channel or not username or not remover:
+        return jsonify({"error": "Thiếu thông tin"}), 400
+    
+    channel_ref = db.reference(f"channels/{channel}")
+    channel_info = channel_ref.get()
+    
+    if not channel_info:
+        return jsonify({"error": "Channel không tồn tại"}), 404
+    
+    if channel_info.get("host") != remover:
+        return jsonify({"error": "Chỉ host mới có quyền xóa thành viên"}), 403
+    
+    joined_users = channel_info.get("joined_users", [])
+    if username in joined_users:
+        joined_users.remove(username)
+        channel_ref.update({"joined_users": joined_users})
+    
+    return jsonify({"message": "Đã xóa thành viên", "channel": channel, "user": username}), 200
+
+
+@app.route('/get_all_messages', methods=['GET'])
+def get_all_messages():
+    channel = request.args.get("channel")
+    if not channel:
+        return jsonify({"error": "Thiếu channel"}), 400
+    
+    # Kiểm tra channel tồn tại
+    channel_ref = db.reference(f"channels/{channel}")
+    if not channel_ref.get():
+        return jsonify({"error": "Channel không tồn tại"}), 404
+    
+    # Lấy tất cả tin nhắn và sắp xếp theo timestamp
+    messages_ref = db.reference(f"messages/{channel}")
+    messages = messages_ref.get() or {}
+    
+    # Chuyển thành list và sắp xếp
+    messages_list = []
+    for msg_id, msg_data in messages.items():
+        messages_list.append(msg_data)
+    
+    messages_list.sort(key=lambda x: x.get("timestamp", ""))
+    
+    return jsonify({"messages": messages_list}), 200
+
+@app.route('/get_pending_messages', methods=['GET'])
+def get_pending_messages():
+    username = request.args.get("username")
+    if not username:
+        return jsonify({"error": "Thiếu username"}), 400
+    
+    pending_ref = db.reference(f"pending_messages/{username}")
+    pending_msgs = pending_ref.get() or {}
+    
+    # Lấy và xóa tin nhắn pending
+    messages = []
+    for msg_id, msg_data in pending_msgs.items():
+        messages.append(msg_data)
+    
+    pending_ref.delete()
+    
+    # Sắp xếp theo timestamp
+    messages.sort(key=lambda x: x.get("timestamp", ""))
+    
+    return jsonify({"messages": messages}), 200
 
 if __name__ == '__main__':
     requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
