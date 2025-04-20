@@ -8,7 +8,7 @@ import requests
 
 app = Flask(__name__)
 
-TRACKER_URL = 'http://localhost:5000'
+TRACKER_URL = 'http://208.100.26.100:5000'
 MY_TCP_PORT = 6000
 
 if not firebase_admin._apps:
@@ -42,6 +42,7 @@ def login():
         "port": MY_TCP_PORT
     })
 
+    # Xóa khỏi danh sách visitor nếu có
     visitor_ref = db.reference("peers_visitor_online")
     for key, value in (visitor_ref.get() or {}).items():
         if value.get("ip") == my_ip and int(value.get("port")) == MY_TCP_PORT:
@@ -49,16 +50,22 @@ def login():
             break
 
     channel_ref = db.reference("channels")
-    channels_data = channel_ref.get()
-    user_channel = None
-    if channels_data:
-        for channel_name, info in channels_data.items():
-            if info.get("host") == username:
-                user_channel = channel_name
-                break
+    channels_data = channel_ref.get() or {}
+    
+    # Tìm tất cả channels user tham gia
+    channels_hosted = []
+    channels_joined = []
+    
+    for channel_name, info in channels_data.items():
+        joined_users = info.get("joined_users", info.get("join_users", []))  # Hỗ trợ cả 2 trường hợp
+        if info.get("host") == username:
+            channels_hosted.append(channel_name)
+        elif username in joined_users:
+            channels_joined.append(channel_name)
 
-    if user_channel:
-        joined_users = channels_data[user_channel].get("joined_users", [])
+    # Thông báo cho các user khác trong channel host
+    for channel in channels_hosted:
+        joined_users = channels_data[channel].get("joined_users", channels_data[channel].get("join_users", []))
         auth_peers = db.reference("peers_auth_online").get() or {}
         for u in joined_users:
             if u == username:
@@ -69,9 +76,21 @@ def login():
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                         s.connect((peer_info["ip"], int(peer_info["port"])))
                         s.sendall(f"[PEER CONNECTED FROM HOST]".encode())
-                except: pass
+                    # Gọi tracker để log kết nối
+                    requests.post(f"{TRACKER_URL}/peer_connect", json={
+                        "source": my_ip,
+                        "dest": peer_info["ip"]
+                    })
+                except: 
+                    pass
 
-    return jsonify({"message": "Đăng nhập thành công", "username": username, "is_host": user_channel is not None, "channel": user_channel}), 200
+    return jsonify({
+        "message": "Đăng nhập thành công",
+        "username": username,
+        "channels_hosted": channels_hosted,  # Danh sách channel user là host
+        "channels_joined": channels_joined,  # Danh sách channel user tham gia
+        "is_host": len(channels_hosted) > 0  # True nếu là host ít nhất 1 channel
+    }), 200
 
 def get_my_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -123,6 +142,7 @@ def send_to_channel():
         "timestamp": timestamp
     }
 
+    my_ip = get_my_ip()
     for user in joined_users:
         if user == sender:
             continue
@@ -132,6 +152,11 @@ def send_to_channel():
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.connect((peer["ip"], int(peer["port"])))
                     s.sendall(str(msg_data).encode())
+                # Gọi tracker để log kết nối
+                requests.post(f"{TRACKER_URL}/peer_connect", json={
+                    "source": my_ip,
+                    "dest": peer["ip"]
+                })
             except: pass
         else:
             db.reference(f"pending_messages/{user}").push(msg_data)

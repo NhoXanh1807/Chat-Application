@@ -11,7 +11,6 @@ firebase_admin.initialize_app(cred, {
     "databaseURL": "https://chat-application--assign-1-default-rtdb.asia-southeast1.firebasedatabase.app/"
 })
 
-# Dọn sạch peers khi tracker khởi động lại
 for path in ["peers", "peers_visitor_online", "peers_auth_online"]:
     db.reference(path).delete()
 
@@ -27,6 +26,16 @@ def submit_info():
     db.reference("peers").child(key).set({"ip": ip, "port": port})
     db.reference("peers_visitor_online").child(key).set({"ip": ip, "port": port})
     return jsonify({"message": "Peer đã đăng ký visitor"}), 200
+
+@app.route('/peer_connect', methods=['POST'])
+def peer_connect():
+    data = request.json
+    source_ip = data.get("source")
+    dest_ip = data.get("dest")
+    if source_ip and dest_ip:
+        print(f"Peer connect: {source_ip} -> {dest_ip}")
+        return jsonify({"message": "In thông báo thành công"})
+    return jsonify({"error": "Thiếu thông tin"}), 400
 
 @app.route('/get_list', methods=['GET'])
 def get_list():
