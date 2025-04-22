@@ -1,6 +1,6 @@
+"use client";
 import { useEffect, useState } from 'react';
 
-// Định nghĩa kiểu dữ liệu
 type Channel = {
   name: string;
   host: string;
@@ -13,13 +13,14 @@ type User = {
   status: 'Online' | 'Offline';
 };
 
-function Sec1() {
+function Sec1({ onChannelSelect }: { onChannelSelect: (channelName: string) => void }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [currentUser, setCurrentUser] = useState<User>({ 
     username: 'Visitor', 
     status: 'Online'
   });
   const [loading, setLoading] = useState(true);
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -65,6 +66,11 @@ function Sec1() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleChannelClick = (channelName: string) => {
+    setSelectedChannel(channelName);
+    onChannelSelect(channelName);
+  };
+
   return (
     <div className="h-screen bg-[#2B2D31] w-1/4 text-white flex flex-col justify-between p-4 text-2xl border-4 border-solid border-[#6D34AF]">
       <div className="list_channels">
@@ -75,7 +81,11 @@ function Sec1() {
         ) : (
           <ul className="w-full flex flex-col gap-[10px]">
             {channels.map((channel, index) => (
-              <li key={`${channel.name}-${index}`} className="flex justify-between items-center">
+              <li 
+                key={`${channel.name}-${index}`} 
+                className={`flex justify-between items-center p-2 rounded cursor-pointer ${selectedChannel === channel.name ? 'bg-[#6D34AF]' : 'hover:bg-[#3E4053]'}`}
+                onClick={() => handleChannelClick(channel.name)}
+              >
                 <div className="channel-name">{channel.name}</div>
                 <div className="flex items-center gap-2">
                   <div className="channel-owner text-2xl">{channel.host}</div>

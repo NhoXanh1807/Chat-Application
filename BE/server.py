@@ -5,20 +5,20 @@ import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
 import requests
-
+from flask_cors import CORS
 app = Flask(__name__)
 
 TRACKER_URL = 'http://208.100.26.100:5000'
 MY_TCP_PORT = 6000
 
 if not firebase_admin._apps:
-    cred = credentials.Certificate("C:/Users/nguye/Downloads/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
+    cred = credentials.Certificate("../../Desktop/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
     firebase_admin.initialize_app(cred, {
         "databaseURL": "https://chat-application--assign-1-default-rtdb.asia-southeast1.firebasedatabase.app/"
     })
 
 latest_message = None
-
+CORS(app, origins=["http://208.100.26.101:3000"])
 @app.route('/auth', methods=['POST'])
 def login():
     data = request.json
