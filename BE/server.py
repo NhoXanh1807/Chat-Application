@@ -143,20 +143,17 @@ def send_to_channel():
     auth_peers = db.reference("peers_auth_online").get() or {}
     msg_data = {
         "channel": channel,
-        "sender": sender,
+        "sender": sender,  # giữ nguyên người gửi gốc
         "content": content,
         "timestamp": timestamp
     }
 
-    # Ghi log ở server
-    log_message(msg_data)
-
-    my_ip = get_my_ip()
     host_username = channel_info.get("host")
     is_sender_host = sender == host_username
+    my_ip = get_my_ip()
 
     if is_sender_host:
-        # HOST gửi trực tiếp cho các joined users khác đang online
+        # HOST gửi trực tiếp tới joined_users
         for user in joined_users:
             if user == sender:
                 continue
@@ -166,35 +163,51 @@ def send_to_channel():
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                         s.connect((peer["ip"], int(peer["port"])))
                         s.sendall(str(msg_data).encode())
-                    requests.post(f"{TRACKER_URL}/peer_connect", json={
-                        "source": my_ip,
-                        "dest": peer["ip"]
-                    })
+                    requests.post(f"{TRACKER_URL}/peer_connect", json={"source": my_ip, "dest": peer["ip"]})
                 except:
                     pass
             else:
                 db.reference(f"pending_messages/{user}").push(msg_data)
 
-        # Host vẫn ghi đè tin nhắn vào firebase
+        log_message(msg_data)
         db.reference(f"messages/{channel}").push(msg_data)
 
     else:
-        # JOINED_USER gửi đến host nếu host đang online
+        # JOINED_USER gửi cho host nếu online
         host_peer = auth_peers.get(host_username)
         if host_peer:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.connect((host_peer["ip"], int(host_peer["port"])))
                     s.sendall(str(msg_data).encode())
-                requests.post(f"{TRACKER_URL}/peer_connect", json={
-                    "source": my_ip,
-                    "dest": host_peer["ip"]
-                })
+                requests.post(f"{TRACKER_URL}/peer_connect", json={"source": my_ip, "dest": host_peer["ip"]})
+
+                # Tiếp theo, host relay lại TCP tới các joined_users khác (ngoại trừ host và sender)
+                for user in joined_users:
+                    if user in (sender, host_username):
+                        continue
+                    peer = auth_peers.get(user)
+                    if peer:
+                        try:
+                            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                                s.connect((peer["ip"], int(peer["port"])))
+                                s.sendall(str(msg_data).encode())
+                            requests.post(f"{TRACKER_URL}/peer_connect", json={"source": my_ip, "dest": peer["ip"]})
+                        except:
+                            pass
+                    else:
+                        db.reference(f"pending_messages/{user}").push(msg_data)
+
+                log_message(msg_data)
+                db.reference(f"messages/{channel}").push(msg_data)
+
             except:
-                # Nếu gửi TCP tới host thất bại thì rơi về lưu Firebase
+                # Nếu host online nhưng gửi TCP lỗi → fallback ghi Firebase
+                log_message(msg_data)
                 db.reference(f"messages/{channel}").push(msg_data)
         else:
-            # Host không online → gửi lên firebase
+            # host offline → gửi Firebase như thường
+            log_message(msg_data)
             db.reference(f"messages/{channel}").push(msg_data)
 
     return jsonify({"message": "Đã gửi thành công", "data": msg_data}), 200
