@@ -26,7 +26,7 @@ function Login() {
             
             // Lưu thông tin đăng nhập và chuyển hướng
             localStorage.setItem('user', JSON.stringify(data));
-            window.location.href = '/chat'; // Chuyển hướng đến trang chat
+            window.location.href = '/'; // Chuyển hướng đến trang chat
         } catch (err: unknown) {
             if (err instanceof Error) {
                 setError(err.message);

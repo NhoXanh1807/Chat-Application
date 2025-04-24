@@ -12,13 +12,13 @@ TRACKER_URL = 'http://208.100.26.100:5000'
 MY_TCP_PORT = 6000
 
 if not firebase_admin._apps:
-    cred = credentials.Certificate("../../Desktop/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
+    cred = credentials.Certificate("C:/Users/nguye/Downloads/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
     firebase_admin.initialize_app(cred, {
         "databaseURL": "https://chat-application--assign-1-default-rtdb.asia-southeast1.firebasedatabase.app/"
     })
 
 latest_message = None
-CORS(app, origins=["http://208.100.26.101:3000"])
+CORS(app, origins="*")  # Chấp nhận từ tất cả các domain/IP
 @app.route('/auth', methods=['POST'])
 def login():
     data = request.json
@@ -299,7 +299,52 @@ def get_pending_messages():
     messages.sort(key=lambda x: x.get("timestamp", ""))
     
     return jsonify({"messages": messages}), 200
+@app.route('/logout', methods=['POST'])
+def logout():
+    data = request.json
+    username = data.get("username")
+    if not username:
+        return jsonify({"error": "Thiếu username"}), 400
 
+    my_ip = get_my_ip()
+
+    # Xóa khỏi peers_auth_online
+    db.reference("peers_auth_online").child(username).delete()
+
+    # Thêm lại vào peers_visitor_online nếu chưa tồn tại (theo IP và PORT)
+    visitor_ref = db.reference("peers_visitor_online")
+    already_exists = False
+    for key, value in (visitor_ref.get() or {}).items():
+        if value.get("ip") == my_ip and int(value.get("port")) == MY_TCP_PORT:
+            already_exists = True
+            break
+
+    if not already_exists:
+        visitor_ref.push({
+            "ip": my_ip,
+            "port": MY_TCP_PORT
+        })
+
+    return jsonify({"message": "Đăng xuất thành công"}), 200
+@app.route('/get_all_accounts', methods=['GET'])
+def get_all_accounts():
+    ref = db.reference("accounts")
+    data = ref.get() or {}
+    usernames = list(data.keys())
+    return jsonify({"usernames": usernames})
+@app.route('/get_join_users', methods=['GET'])
+def get_join_users():
+    channel = request.args.get("channel")
+    if not channel:
+        return jsonify({"error": "Thiếu tên channel"}), 400
+
+    channel_ref = db.reference(f"channels/{channel}")
+    channel_info = channel_ref.get()
+    if not channel_info:
+        return jsonify({"error": "Channel không tồn tại"}), 404
+
+    joined_users = channel_info.get("joined_users", [])
+    return jsonify({"joined_users": joined_users}), 200
 if __name__ == '__main__':
     requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
     app.run(host='0.0.0.0', port=8000)
