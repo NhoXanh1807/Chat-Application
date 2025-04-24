@@ -12,7 +12,7 @@ TRACKER_URL = 'http://208.100.26.100:5000'
 MY_TCP_PORT = 6000
 
 if not firebase_admin._apps:
-    cred = credentials.Certificate("C:/Users/nguye/Downloads/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
+    cred = credentials.Certificate("chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
     firebase_admin.initialize_app(cred, {
         "databaseURL": "https://chat-application--assign-1-default-rtdb.asia-southeast1.firebasedatabase.app/"
     })

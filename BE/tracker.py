@@ -6,7 +6,7 @@ from firebase_admin import credentials, db
 
 app = Flask(__name__)
 
-cred = credentials.Certificate("C:/Users/nguye/Downloads/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
+cred = credentials.Certificate("chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
 firebase_admin.initialize_app(cred, {
     "databaseURL": "https://chat-application--assign-1-default-rtdb.asia-southeast1.firebasedatabase.app/"
 })
