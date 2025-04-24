@@ -152,26 +152,53 @@ def send_to_channel():
     log_message(msg_data)
 
     my_ip = get_my_ip()
-    for user in joined_users:
-        if user == sender:
-            continue
-        peer = auth_peers.get(user)
-        if peer:
+    host_username = channel_info.get("host")
+    is_sender_host = sender == host_username
+
+    if is_sender_host:
+        # HOST gửi trực tiếp cho các joined users khác đang online
+        for user in joined_users:
+            if user == sender:
+                continue
+            peer = auth_peers.get(user)
+            if peer:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.connect((peer["ip"], int(peer["port"])))
+                        s.sendall(str(msg_data).encode())
+                    requests.post(f"{TRACKER_URL}/peer_connect", json={
+                        "source": my_ip,
+                        "dest": peer["ip"]
+                    })
+                except:
+                    pass
+            else:
+                db.reference(f"pending_messages/{user}").push(msg_data)
+
+        # Host vẫn ghi đè tin nhắn vào firebase
+        db.reference(f"messages/{channel}").push(msg_data)
+
+    else:
+        # JOINED_USER gửi đến host nếu host đang online
+        host_peer = auth_peers.get(host_username)
+        if host_peer:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect((peer["ip"], int(peer["port"])))
+                    s.connect((host_peer["ip"], int(host_peer["port"])))
                     s.sendall(str(msg_data).encode())
-                # Gọi tracker để log kết nối
                 requests.post(f"{TRACKER_URL}/peer_connect", json={
                     "source": my_ip,
-                    "dest": peer["ip"]
+                    "dest": host_peer["ip"]
                 })
-            except: pass
+            except:
+                # Nếu gửi TCP tới host thất bại thì rơi về lưu Firebase
+                db.reference(f"messages/{channel}").push(msg_data)
         else:
-            db.reference(f"pending_messages/{user}").push(msg_data)
+            # Host không online → gửi lên firebase
+            db.reference(f"messages/{channel}").push(msg_data)
 
-    db.reference(f"messages/{channel}").push(msg_data)
     return jsonify({"message": "Đã gửi thành công", "data": msg_data}), 200
+
 
 def log_message(message_dict):
     channel = message_dict.get("channel", "general")
