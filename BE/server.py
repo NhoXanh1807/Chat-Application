@@ -33,7 +33,10 @@ def auth():
     # Kiểm tra nếu đã đăng nhập ở nơi khác
     auth_peers = db.reference("peers_auth_online").get() or {}
     if username in auth_peers:
-        return jsonify({"error": "Tài khoản đã đăng nhập ở máy khác"}), 403
+        existing = auth_peers[username]
+        if existing["ip"] != my_ip or int(existing["port"]) != MY_TCP_PORT:
+            return jsonify({"error": "Tài khoản đã đăng nhập ở máy khác"}), 403
+
 
     ref = db.reference(f"accounts/{username}")
     user_data = ref.get()
