@@ -8,6 +8,8 @@ import requests
 from flask_cors import CORS
 import json
 import os
+import threading
+import time
 app = Flask(__name__)
 
 TRACKER_URL = 'http://208.100.26.100:5000'
@@ -445,12 +447,19 @@ def export_database():
     full_data = db.reference("/").get()
     with open("database_backup.json", "w", encoding="utf-8") as f:
         json.dump(full_data, f, ensure_ascii=False, indent=2)
+
+
+def auto_backup():
+    while True:
+        try:
+            export_database()
+            print("✅ [AUTO BACKUP] Đã sao lưu vào database_backup.json")
+        except Exception as e:
+            print("❌ [AUTO BACKUP] Lỗi khi sao lưu:", e)
+        time.sleep(60)  # mỗi 60 giây
+
         
 if __name__ == '__main__':
-    try:
-        requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
-        app.run(host='0.0.0.0', port=8000)
-    except KeyboardInterrupt:
-        print("\n🛑 Server dừng, gọi export_database...")
-        export_database()
-        print("✅ Đã sao lưu vào database_backup.json")
+    threading.Thread(target=auto_backup, daemon=True).start()
+    requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
+    app.run(host='0.0.0.0', port=8000)
