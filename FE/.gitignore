@@ -39,3 +39,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+BE/chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json

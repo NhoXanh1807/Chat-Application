@@ -25,6 +25,10 @@ latest_message = None
 CORS(app, origins="*")  # Chấp nhận từ tất cả các domain/IP
 @app.route('/auth', methods=['POST'])
 def auth():
+    import glob
+    import re
+    import os
+
     data = request.json
     username = data.get("username")
     password = data.get("password")
@@ -32,14 +36,16 @@ def auth():
     if not username or not password:
         return jsonify({"error": "Thiếu username hoặc password"}), 400
 
-    # Kiểm tra nếu đã đăng nhập ở nơi khác
+    my_ip = get_my_ip()
     auth_peers = db.reference("peers_auth_online").get() or {}
+
+    # Nếu tài khoản đã đăng nhập ở nơi khác
     if username in auth_peers:
         existing = auth_peers[username]
         if existing["ip"] != my_ip or int(existing["port"]) != MY_TCP_PORT:
             return jsonify({"error": "Tài khoản đã đăng nhập ở máy khác"}), 403
 
-
+    # Kiểm tra tài khoản
     ref = db.reference(f"accounts/{username}")
     user_data = ref.get()
     if not user_data:
@@ -47,21 +53,21 @@ def auth():
     if user_data.get("password") != password:
         return jsonify({"error": "Sai mật khẩu"}), 401
 
-    my_ip = get_my_ip()
+    # Cập nhật online
     db.reference("peers_auth_online").child(username).set({
         "username": username,
         "ip": my_ip,
         "port": MY_TCP_PORT
     })
 
-    # Xóa khỏi danh sách visitor nếu có
+    # Xoá khỏi visitor nếu có
     visitor_ref = db.reference("peers_visitor_online")
     for key, value in (visitor_ref.get() or {}).items():
         if value.get("ip") == my_ip and int(value.get("port")) == MY_TCP_PORT:
             visitor_ref.child(key).delete()
             break
 
-    # Lấy thông tin channel
+    # Tìm channel đã tham gia
     channel_ref = db.reference("channels")
     channels_data = channel_ref.get() or {}
 
@@ -75,14 +81,13 @@ def auth():
         elif username in joined_users:
             channels_joined.append(channel_name)
 
-    # Thông báo cho các user khác trong channel host
+    # Gửi thông báo tới các joined users trong channel do user host
     for channel in channels_hosted:
         joined_users = channels_data[channel].get("joined_users", [])
-        auth_peers = db.reference("peers_auth_online").get() or {}
+        peers = db.reference("peers_auth_online").get() or {}
         for u in joined_users:
-            if u == username:
-                continue
-            peer_info = auth_peers.get(u)
+            if u == username: continue
+            peer_info = peers.get(u)
             if peer_info:
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -102,8 +107,7 @@ def auth():
         log_message(msg_data)
     pending_ref.delete()
 
-        # --- Đồng bộ lại các log offline sau khi online ---
-    import glob
+    # Đồng bộ lại các log offline vào firebase
     log_dir = "logs"
     pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
 
@@ -131,10 +135,8 @@ def auth():
                     new_lines.append(line)
 
             with open(log_file, "w", encoding="utf-8") as f:
-                for line in new_lines:
-                    f.write(line)
+                f.writelines(new_lines)
 
-    
     return jsonify({
         "message": "Đăng nhập thành công",
         "username": username,
