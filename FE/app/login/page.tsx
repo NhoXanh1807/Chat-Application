@@ -4,6 +4,7 @@ import { useState } from "react";
 function Login() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [invisible, setInvisible] = useState(false);
     const [error, setError] = useState("");
 
     const handleLogin = async () => {
@@ -13,33 +14,23 @@ function Login() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    username: username, // Giả sử username là IP cho đơn giản
-                    password: password
-                })
+                body: JSON.stringify({ username, password })
             });
             
             const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || "Đăng nhập thất bại");
-            }
-            
-            // Lưu thông tin đăng nhập và chuyển hướng
-            localStorage.setItem('user', JSON.stringify(data));
-            window.location.href = '/'; // Chuyển hướng đến trang chat
+            if (!response.ok) throw new Error(data.error || "Đăng nhập thất bại");
+
+            // Thêm invisible vào user object
+            localStorage.setItem('user', JSON.stringify({ ...data, invisible }));
+            window.location.href = '/';
         } catch (err: unknown) {
-            if (err instanceof Error) {
-                setError(err.message);
-            } else {
-                setError("Đã xảy ra lỗi không xác định");
-            }
+            setError(err instanceof Error ? err.message : "Đã xảy ra lỗi không xác định");
         }
-        
     };
 
     return (
         <div className="flex w-screen h-screen justify-center items-center bg-[#dddddd]">
-            <div className="Loginform text-white border-box w-[20%] h-[30%]">
+            <div className="Loginform text-white border-box w-[20%] h-[35%]">
                 <div className="Name text-3xl p-4 bg-[#6D34AF] rounded-t-[8px]">
                     Login
                 </div>
@@ -62,6 +53,13 @@ function Login() {
                             onChange={(e) => setPassword(e.target.value)}
                         />
                     </div>
+                    <label className="text-sm mt-2">
+                        <input 
+                            type="checkbox" 
+                            checked={invisible}
+                            onChange={() => setInvisible(!invisible)} 
+                        /> Invisible Mode
+                    </label>
                     {error && <div className="text-red-500 text-sm">{error}</div>}
                     <button 
                         className="mt-4 bg-[#6D34AF] py-2 rounded-[8px]"

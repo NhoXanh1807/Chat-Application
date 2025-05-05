@@ -26,11 +26,12 @@ function Sec1({ onChannelSelect }: { onChannelSelect: (channelName: string) => v
     const userData = localStorage.getItem('user');
     if (userData) {
       try {
-        const user = JSON.parse(userData) as { username: string };
-        setCurrentUser({
-          username: user.username,
-          status: 'Online'
-        });
+        const user = JSON.parse(userData) as { username: string, invisible?: boolean };
+  setCurrentUser({
+  username: user.username,
+  status: user.invisible ? 'Invisible' : 'Online'
+});
+
       } catch (error) {
         console.error('Lỗi parse user data:', error);
       }
@@ -100,9 +101,14 @@ function Sec1({ onChannelSelect }: { onChannelSelect: (channelName: string) => v
       </div>
       <div className="peer_name w-full flex justify-between items-center">
         <span>{currentUser.username}</span>
-        <div className={`status ${currentUser.status === 'Online' ? 'text-green-500' : 'text-gray-500'}`}>
+        <div className={`status ${
+          currentUser.status === 'Online' ? 'text-green-500' :
+          currentUser.status === 'Invisible' ? 'text-yellow-400' :
+          'text-gray-500'
+          }`}>
           {currentUser.status}
         </div>
+
       </div>
     </div>
   );

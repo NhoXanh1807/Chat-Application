@@ -1,10 +1,15 @@
-# client.py
+# Updated client.py and tracker.py to support command-line ports
+
+# --------------------
+# Modified client.py
+# --------------------
 import socket
 import threading
 import requests
 import datetime
 import json
 import os
+import argparse
 
 def get_my_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -16,7 +21,12 @@ def get_my_ip():
     s.close()
     return ip
 
-SERVER_FLASK_URL = f"http://{get_my_ip()}:8000"
+parser = argparse.ArgumentParser()
+parser.add_argument('--tcp-port', type=int, required=True, help='TCP port to listen on')
+parser.add_argument('--flask-port', type=int, required=True, help='Port of the server Flask app')
+args = parser.parse_args()
+
+SERVER_FLASK_URL = f"http://{get_my_ip()}:{args.flask_port}"
 
 def send_to_flask(message):
     try:
@@ -75,7 +85,7 @@ def handle_client(conn, addr):
             print("❌ Lỗi đọc tin nhắn:", e)
     conn.close()
 
-def start_server(host='0.0.0.0', port=6000):
+def start_server(host='0.0.0.0', port=args.tcp_port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((host, port))
     s.listen()

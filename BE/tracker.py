@@ -1,8 +1,13 @@
-# tracker.py
 import socket
 from flask import Flask, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, db
+import argparse
+from datetime import datetime
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--port', type=int, required=True, help='Port to run tracker on')
+args = parser.parse_args()
 
 app = Flask(__name__)
 
@@ -32,29 +37,28 @@ def peer_connect():
     data = request.json
     source_ip = data.get("source")
     dest_ip = data.get("dest")
-    
+
     if not source_ip or not dest_ip:
         return jsonify({"error": "Thiếu thông tin"}), 400
-    
-    # Kiểm tra nếu là kết nối tự gọi
+
     if source_ip == dest_ip:
         print(f"Peer tự kết nối: {source_ip}")
         return jsonify({"message": "Peer tự kết nối"}), 200
-    
+
     print(f"Peer connect: {source_ip} -> {dest_ip}")
-    
-    # Log kết nối vào Firebase
+
     db.reference("peer_connections").push({
         "source": source_ip,
         "dest": dest_ip,
         "timestamp": datetime.utcnow().isoformat()
     })
-    
+
     return jsonify({"message": "Đã log kết nối thành công"}), 200
+
 @app.route('/get_list', methods=['GET'])
 def get_list():
     peers = db.reference("peers").get()
     return jsonify(list(peers.values()) if peers else [])
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=args.port)

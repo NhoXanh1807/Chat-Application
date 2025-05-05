@@ -8,12 +8,24 @@ import requests
 from flask_cors import CORS
 import json
 import os
+import argparse
 import threading
 import time
 app = Flask(__name__)
 
-TRACKER_URL = 'http://208.100.26.100:5000'
-MY_TCP_PORT = 6000
+# -----------------------
+# Parse command-line args
+# -----------------------
+parser = argparse.ArgumentParser(description="Start the chat server with custom ports.")
+parser.add_argument('--tracker-ip', required=True, help='IP of tracker server')
+parser.add_argument('--tracker-port', required=True, type=int, help='Port of tracker server')
+parser.add_argument('--tcp-port', required=True, type=int, help='TCP port used by peer')
+parser.add_argument('--service-port', required=True, type=int, help='Flask service port')
+args = parser.parse_args()
+
+TRACKER_URL = f"http://{args.tracker_ip}:{args.tracker_port}"
+MY_TCP_PORT = args.tcp_port
+SERVICE_PORT = args.service_port
 
 if not firebase_admin._apps:
     cred = credentials.Certificate("chat-application--assign-1-firebase-adminsdk-fbsvc-c2e8ce253b.json")
@@ -108,19 +120,18 @@ def auth():
     pending_ref.delete()
 
     # Đồng bộ lại các log offline vào firebase
-    log_dir = "logs"
-    pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
+    log_pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
 
-    if os.path.isdir(log_dir):
-        for log_file in glob.glob(os.path.join(log_dir, "log_*.txt")):
-            channel = log_file.split("_")[-1].replace(".txt", "")
+    for file in os.listdir("."):
+        if file.startswith("log_") and file.endswith(".txt"):
+            channel = file[len("log_"):].replace(".txt", "")
             lines = []
             new_lines = []
-            with open(log_file, "r", encoding="utf-8") as f:
+            with open(file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
 
             for line in lines:
-                match = pattern.match(line)
+                match = log_pattern.match(line)
                 if match:
                     ts, sender_log, content = match.groups()
                     msg_data = {
@@ -130,11 +141,11 @@ def auth():
                         "timestamp": ts
                     }
                     db.reference(f"messages/{channel}").push(msg_data)
-                    log_message(msg_data, offline=False)
+                    new_lines.append(f"[{ts}] {sender_log}: {content.strip()}\n")  # 🔄 xoá (offline)
                 else:
                     new_lines.append(line)
 
-            with open(log_file, "w", encoding="utf-8") as f:
+            with open(file, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
 
     return jsonify({
@@ -464,4 +475,4 @@ def auto_backup():
 if __name__ == '__main__':
     threading.Thread(target=auto_backup, daemon=True).start()
     requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=SERVICE_PORT)
