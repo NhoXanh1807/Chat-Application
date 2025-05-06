@@ -10,7 +10,7 @@ type Channel = {
 
 type User = {
   username: string;
-  status: 'Online' | 'Offline';
+  status: 'Online' | 'Offline' | 'Invisible';
 };
 
 function Sec1({ onChannelSelect }: { onChannelSelect: (channelName: string) => void }) {
