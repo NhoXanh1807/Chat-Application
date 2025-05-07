@@ -87,6 +87,7 @@ def auth():
             visitor_ref.child(key).delete()
             break
 
+    # Lấy thông tin các channel
     channel_ref = db.reference("channels")
     channels_data = channel_ref.get() or {}
     channels_hosted = []
@@ -99,83 +100,80 @@ def auth():
         elif username in joined_users:
             channels_joined.append(channel_name)
 
-    for channel in channels_hosted:
-        joined_users = channels_data[channel].get("joined_users", [])
-        peers = db.reference("peers_auth_online").get() or {}
-        for u in joined_users:
-            if u == username: continue
-            peer_info = peers.get(u)
-            if peer_info:
-                try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.connect((peer_info["ip"], int(peer_info["port"])))
-                        s.sendall(f"[PEER CONNECTED FROM HOST]".encode())
-                    requests.post(f"{TRACKER_URL}/peer_connect", json={
-                        "source": my_ip,
-                        "dest": peer_info["ip"]
-                    })
-                except:
-                    pass
+    # Đồng bộ lại log từ các file log_*.txt
+    log_pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
+    peer_list = db.reference("peers_auth_online").get() or {}
 
-    # Đồng bộ pending_messages vào log local
+    for file in os.listdir("."):
+        if not file.startswith("log_") or not file.endswith(".txt"):
+            continue
+
+        channel = file[len("log_"):-4]
+        if channel not in channels_hosted + channels_joined:
+            continue
+
+        with open(file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        messages_to_resend = []
+        new_lines = []
+
+        for line in lines:
+            match = log_pattern.match(line)
+            if match:
+                ts, sender_log, content = match.groups()
+                content = content.strip()
+                msg_data = {
+                    "channel": channel,
+                    "sender": sender_log,
+                    "content": content,
+                    "timestamp": ts
+                }
+                db.reference(f"messages/{channel}").push(msg_data)
+                messages_to_resend.append(msg_data)
+                new_lines.append(f"[{ts}] {sender_log}: {content}\n")
+            else:
+                new_lines.append(line)
+
+        with open(file, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        # Phân loại xử lý lại log tùy vào vai trò
+        channel_info = channels_data.get(channel, {})
+        joined_users = channel_info.get("joined_users", [])
+        host_user = channel_info.get("host")
+
+        if username == host_user:
+            # (1) Host: gửi message cũ cho joined users online
+            for msg_data in messages_to_resend:
+                for user in joined_users:
+                    if user == username:
+                        continue
+                    peer = peer_list.get(user)
+                    if peer:
+                        send_tcp_message(peer["ip"], peer["port"], msg_data)
+                    else:
+                        db.reference(f"pending_messages/{user}").push(msg_data)
+
+        else:
+            host_peer = peer_list.get(host_user)
+            if host_peer:
+                # (2) Joined user, host online: gửi lại message về cho host
+                for msg_data in messages_to_resend:
+                    send_tcp_message(host_peer["ip"], host_peer["port"], msg_data)
+            else:
+                # (3) Host offline: lấy message từ Firebase, gửi về bản thân để log
+                firebase_msgs = db.reference(f"messages/{channel}").get() or {}
+                for _, msg_data in firebase_msgs.items():
+                    if msg_data.get("sender") != username:
+                        send_tcp_message(my_ip, MY_TCP_PORT, msg_data)
+
+    # Đồng bộ lại pending_messages cho chính mình
     pending_ref = db.reference(f"pending_messages/{username}")
     pending_msgs = pending_ref.get() or {}
     for _, msg_data in pending_msgs.items():
-        log_message(msg_data)
+        send_tcp_message(my_ip, MY_TCP_PORT, msg_data)
     pending_ref.delete()
-
-    # Đồng bộ lại các log offline vào Firebase
-    log_pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
-    for file in os.listdir("."):
-        if file.startswith("log_") and file.endswith(".txt"):
-            channel = file[len("log_"):-4]
-            channel_joined_users = channels_data.get(channel, {}).get("joined_users", [])
-
-            lines = []
-            new_lines = []
-            with open(file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-
-            for line in lines:
-                match = log_pattern.match(line)
-                if match:
-                    ts, sender_log, content = match.groups()
-                    content = content.strip()
-
-                    msg_data = {
-                        "channel": channel,
-                        "sender": sender_log,
-                        "content": content,
-                        "timestamp": ts
-                    }
-
-                    # Gửi lên Firebase
-                    db.reference(f"messages/{channel}").push(msg_data)
-
-                    # Ghi vào log mới (không có (offline))
-                    new_lines.append(f"[{ts}] {sender_log}: {content}\n")
-
-                    # ✅ Ghi log vào file của người khác & thêm vào pending_messages
-                    for other_user in channel_joined_users:
-                        if other_user == sender_log:
-                            continue
-
-                        # 1. Ghi log
-                        try:
-                            with open(f"log_{channel}.txt", "a", encoding="utf-8") as f2:
-                                f2.write(f"[{ts}] {sender_log} (offline): {content}\n")
-                        except Exception as e:
-                            print(f"[ERR] Ghi log local cho {other_user}: {e}")
-
-                        # 2. Ghi vào pending_messages nếu offline
-                        if other_user not in auth_peers:
-                            pending_ref = db.reference(f"pending_messages/{other_user}")
-                            pending_ref.push(msg_data)
-                else:
-                    new_lines.append(line)
-
-            with open(file, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
 
     return jsonify({
         "message": "Đăng nhập thành công",
@@ -184,6 +182,7 @@ def auth():
         "channels_joined": channels_joined,
         "is_host": len(channels_hosted) > 0
     }), 200
+
 
 
 def get_my_ip():
@@ -195,6 +194,15 @@ def get_my_ip():
         ip = "127.0.0.1"
     s.close()
     return ip
+
+
+def send_tcp_message(ip, port, message_dict):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((ip, int(port)))
+            s.sendall(str(message_dict).encode())
+    except Exception as e:
+        print(f"[TCP SEND ERR] {ip}:{port} - {e}")
 
 @app.route('/update_message', methods=['POST'])
 def update_message():

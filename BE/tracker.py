@@ -90,7 +90,7 @@ def heartbeat():
     port = data.get("port")
     key = f"{ip.replace('.', '-')}_{port}"
     peer_last_seen[key] = datetime.utcnow()
-    write_log(f"[HEARTBEAT] {ip}:{port} vẫn đang hoạt động.")
+    # write_log removed: heartbeat suppressed to avoid terminal/log spam
     return jsonify({"message": "Heartbeat OK"}), 200
 
 @app.route('/disconnect', methods=['POST'])
