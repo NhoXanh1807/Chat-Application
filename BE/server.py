@@ -34,12 +34,23 @@ if not firebase_admin._apps:
     })
 
 latest_message = None
+
+def send_heartbeat():
+    while True:
+        try:
+            requests.post(f"{TRACKER_URL}/heartbeat", json={
+                "ip": get_my_ip(),
+                "port": MY_TCP_PORT
+            })
+        except:
+            pass
+        time.sleep(10)  # gửi heartbeat mỗi 10 giâ
+
 CORS(app, origins="*")  # Chấp nhận từ tất cả các domain/IP
 @app.route('/auth', methods=['POST'])
 def auth():
-    import glob
-    import re
-    import os
+    import glob, re, os, socket, requests, random, string
+    from firebase_admin import db
 
     data = request.json
     username = data.get("username")
@@ -51,13 +62,11 @@ def auth():
     my_ip = get_my_ip()
     auth_peers = db.reference("peers_auth_online").get() or {}
 
-    # Nếu tài khoản đã đăng nhập ở nơi khác
     if username in auth_peers:
         existing = auth_peers[username]
         if existing["ip"] != my_ip or int(existing["port"]) != MY_TCP_PORT:
             return jsonify({"error": "Tài khoản đã đăng nhập ở máy khác"}), 403
 
-    # Kiểm tra tài khoản
     ref = db.reference(f"accounts/{username}")
     user_data = ref.get()
     if not user_data:
@@ -65,7 +74,6 @@ def auth():
     if user_data.get("password") != password:
         return jsonify({"error": "Sai mật khẩu"}), 401
 
-    # Cập nhật online
     db.reference("peers_auth_online").child(username).set({
         "username": username,
         "ip": my_ip,
@@ -79,10 +87,8 @@ def auth():
             visitor_ref.child(key).delete()
             break
 
-    # Tìm channel đã tham gia
     channel_ref = db.reference("channels")
     channels_data = channel_ref.get() or {}
-
     channels_hosted = []
     channels_joined = []
 
@@ -93,7 +99,6 @@ def auth():
         elif username in joined_users:
             channels_joined.append(channel_name)
 
-    # Gửi thông báo tới các joined users trong channel do user host
     for channel in channels_hosted:
         joined_users = channels_data[channel].get("joined_users", [])
         peers = db.reference("peers_auth_online").get() or {}
@@ -119,12 +124,13 @@ def auth():
         log_message(msg_data)
     pending_ref.delete()
 
-    # Đồng bộ lại các log offline vào firebase
+    # Đồng bộ lại các log offline vào Firebase
     log_pattern = re.compile(r"^\[(.*?)\] (.*?) \(offline\): (.*)$")
-
     for file in os.listdir("."):
         if file.startswith("log_") and file.endswith(".txt"):
-            channel = file[len("log_"):].replace(".txt", "")
+            channel = file[len("log_"):-4]
+            channel_joined_users = channels_data.get(channel, {}).get("joined_users", [])
+
             lines = []
             new_lines = []
             with open(file, "r", encoding="utf-8") as f:
@@ -134,14 +140,37 @@ def auth():
                 match = log_pattern.match(line)
                 if match:
                     ts, sender_log, content = match.groups()
+                    content = content.strip()
+
                     msg_data = {
                         "channel": channel,
                         "sender": sender_log,
-                        "content": content.strip(),
+                        "content": content,
                         "timestamp": ts
                     }
+
+                    # Gửi lên Firebase
                     db.reference(f"messages/{channel}").push(msg_data)
-                    new_lines.append(f"[{ts}] {sender_log}: {content.strip()}\n")  # 🔄 xoá (offline)
+
+                    # Ghi vào log mới (không có (offline))
+                    new_lines.append(f"[{ts}] {sender_log}: {content}\n")
+
+                    # ✅ Ghi log vào file của người khác & thêm vào pending_messages
+                    for other_user in channel_joined_users:
+                        if other_user == sender_log:
+                            continue
+
+                        # 1. Ghi log
+                        try:
+                            with open(f"log_{channel}.txt", "a", encoding="utf-8") as f2:
+                                f2.write(f"[{ts}] {sender_log} (offline): {content}\n")
+                        except Exception as e:
+                            print(f"[ERR] Ghi log local cho {other_user}: {e}")
+
+                        # 2. Ghi vào pending_messages nếu offline
+                        if other_user not in auth_peers:
+                            pending_ref = db.reference(f"pending_messages/{other_user}")
+                            pending_ref.push(msg_data)
                 else:
                     new_lines.append(line)
 
@@ -155,6 +184,7 @@ def auth():
         "channels_joined": channels_joined,
         "is_host": len(channels_hosted) > 0
     }), 200
+
 
 def get_my_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -474,5 +504,6 @@ def auto_backup():
         
 if __name__ == '__main__':
     threading.Thread(target=auto_backup, daemon=True).start()
+    threading.Thread(target=send_heartbeat, daemon=True).start()
     requests.post(f"{TRACKER_URL}/submit_info", json={"ip": get_my_ip(), "port": MY_TCP_PORT})
     app.run(host='0.0.0.0', port=SERVICE_PORT)

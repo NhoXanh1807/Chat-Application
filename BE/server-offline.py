@@ -105,30 +105,36 @@ def get_all_messages_offline():
     messages = []
 
     # 1. Lấy từ database_backup.json
-    msg_list = db_data.get("messages", {}).get(channel, [])
-    for msg in msg_list:
-        messages.append(msg)
+    try:
+        with open("database_backup.json", "r", encoding="utf-8") as f:
+            db_data = json.load(f)
+        msg_dict = db_data.get("messages", {}).get(channel, {})
+        for msg in msg_dict.values():
+            messages.append(msg)
+    except Exception as e:
+        print(f"[ERR] Không thể đọc database_backup.json: {e}")
 
     # 2. Lấy từ file log nếu có
     log_path = f"log_{channel}.txt"
     if os.path.exists(log_path):
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
                     match = re.match(r"\[(.*?)\] (.*?): (.*)", line)
                     if match:
                         ts, sender, content = match.groups()
-                        # Tránh thêm lại nếu đã có trong backup
-                        if not any(m["timestamp"] == ts and m["sender"] == sender and m["content"] == content.strip() for m in messages):
+                        if not any(m.get("timestamp") == ts and m.get("sender") == sender and m.get("content") == content.strip() for m in messages):
                             messages.append({
                                 "sender": sender.replace(" (offline)", ""),
                                 "content": content.strip(),
                                 "timestamp": ts
                             })
-                except:
-                    continue
+        except Exception as e:
+            print(f"[ERR] Không thể đọc log file {log_path}: {e}")
 
-    messages.sort(key=lambda x: x["timestamp"])
+    # Sắp xếp theo thời gian
+    messages.sort(key=lambda x: x.get("timestamp", ""))
+
     return jsonify({"messages": messages}), 200
 
 @app.route('/get_join_users', methods=['GET'])
